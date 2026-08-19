@@ -1,0 +1,113 @@
+# =============================================================================
+# BASELINE EXPERIMENT CONFIGURATION — DEFAULT (ByteTrack)
+# Conventional line-crossing occupancy counter.
+# Every parameter used by the pipeline lives here — nothing is hard-coded.
+# A copy of this exact file is saved alongside every run's results.
+#
+# This is a GENERIC TEMPLATE. The line coordinates below are placeholders
+# (a horizontal line across the middle of the frame) — you MUST calibrate
+# them to your own camera setup before trusting any results. See
+# README.md, section "How to define the virtual line", for the procedure.
+# =============================================================================
+
+experiment:
+  experiment_id: "baseline_run"
+  description: "Conventional line-crossing occupancy baseline (no event validation)"
+
+# -----------------------------------------------------------------------------
+# Input video
+# -----------------------------------------------------------------------------
+video:
+  source: "../data/videos/your_video.mp4"   # path relative to src/, where you run main.py from
+  save_annotated_video: true                 # write an annotated .mp4 for visual QA
+  process_every_nth_frame: 1                 # 1 = process every frame
+
+# -----------------------------------------------------------------------------
+# Detection model (Ultralytics YOLO — detection ONLY, no built-in tracking)
+# -----------------------------------------------------------------------------
+detection:
+  model_weights: "../models/yolo11n.pt"   # auto-downloaded here on first run if missing (needs internet once)
+  device: "cpu"                            # "cpu" or "cuda:0" if you have a supported NVIDIA GPU + CUDA torch build
+  confidence_threshold: 0.30
+  iou_threshold: 0.45
+  target_classes: [0]                      # COCO class 0 = person
+  input_image_size: 640
+
+# -----------------------------------------------------------------------------
+# Tracker — separate module from detection.
+# `type` selects which tracker is active. Only that tracker's block is used;
+# the other stays in the file so both configs are visible for comparison
+# without duplicating the whole file.
+# frame_rate is NOT set here — it's taken from the actual input video at
+# runtime so it's never accidentally out of sync with the footage.
+# -----------------------------------------------------------------------------
+tracker:
+  type: "bytetrack"                 # "bytetrack" | "botsort"
+
+  bytetrack:
+    track_activation_threshold: 0.25   # confidence to start a new track
+    lost_track_buffer: 30              # frames to keep a lost track alive
+    minimum_iou_threshold: 0.8         # IoU matching threshold
+    minimum_consecutive_frames: 2      # frames before a track is "confirmed" (non -1 ID)
+
+  botsort:
+    track_activation_threshold: 0.25
+    lost_track_buffer: 30
+    minimum_iou_threshold_first_assoc: 0.2     # high-confidence detections, 1st association pass
+    minimum_iou_threshold_second_assoc: 0.5    # low-confidence detections, 2nd association pass
+    minimum_iou_threshold_unconfirmed_assoc: 0.3
+    minimum_consecutive_frames: 2
+    high_conf_det_threshold: 0.6
+    enable_cmc: true                   # camera motion compensation (BoT-SORT's key addition over ByteTrack)
+    cmc_method: "sparseOptFlow"        # orb | sift | sparseOptFlow | ecc
+
+# -----------------------------------------------------------------------------
+# Virtual counting line
+# -----------------------------------------------------------------------------
+# Coordinates are NORMALIZED (0.0-1.0) relative to frame WIDTH and HEIGHT,
+# so the same config works across different video resolutions. The line is
+# defined by two endpoints (x1,y1)-(x2,y2) and can represent ANY orientation:
+#
+#   HORIZONTAL line (y1 == y2): e.g. x1=0.0,y1=0.5,x2=1.0,y2=0.5
+#     Use when people cross the camera's view moving mostly vertically in
+#     the frame (e.g. an overhead camera looking down a hallway).
+#
+#   VERTICAL line (x1 == x2): e.g. x1=0.8,y1=0.0,x2=0.8,y2=1.0
+#     Use when people cross moving mostly horizontally in the frame (e.g. a
+#     side-on camera watching someone walk left-to-right past a doorway).
+#     This is the case used for the V00 calibration video — see
+#     config/v00_calibration_config.yaml for a worked, documented example.
+#
+#   DIAGONAL line: any other combination of endpoints.
+#
+# HOW TO CHOOSE COORDINATES: pick two points that form a line perpendicular
+# (roughly) to the direction people actually walk through your frame, then
+# convert their pixel coordinates to normalized values:
+#     x_normalized = pixel_x / frame_width
+#     y_normalized = pixel_y / frame_height
+#
+# `in_is_downward` is a semantic label, NOT a geometric constraint — it only
+# controls which of the two raw crossing signals gets reported as "IN" vs
+# "OUT". Its correct value depends on your camera's specific setup and must
+# be verified empirically: run once, check the annotated video and the
+# events CSV, and flip this boolean if IN/OUT come out reversed.
+line:
+  x1: 0.0
+  y1: 0.5
+  x2: 1.0
+  y2: 0.5
+  in_is_downward: true
+
+# -----------------------------------------------------------------------------
+# Occupancy engine
+# -----------------------------------------------------------------------------
+occupancy:
+  initial_occupancy: 0
+  clamp_minimum_zero: true   # prevent negative occupancy from spurious events
+
+# -----------------------------------------------------------------------------
+# Logging
+# -----------------------------------------------------------------------------
+logging:
+  output_dir: "../results"     # relative to src/ — always resolves to project-level results/
+  save_raw_detections: false   # per-frame raw detections (large; off by default, not currently implemented)

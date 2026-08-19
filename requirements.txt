@@ -1,0 +1,9 @@
+# Pinned exact versions used to build and test this baseline.
+# Freeze these before running final experiments — do not update mid-study.
+ultralytics==8.4.121
+opencv-python-headless==4.13.0.92
+supervision==0.30.0
+trackers==2.6.0
+torch==2.13.0
+torchvision==0.28.0
+PyYAML==6.0.3
