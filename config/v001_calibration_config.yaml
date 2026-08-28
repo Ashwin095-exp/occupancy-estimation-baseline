@@ -1,0 +1,81 @@
+# =============================================================================
+# V001 CALIBRATION CONFIG
+# Vertical counting line at the LED tip's x-coordinate, projected to ground.
+# Identical to v00_calibration_config.yaml in every detection/tracker
+# parameter. Only video source, line coordinates, and experiment
+# metadata differ, per V001's re-measured camera setup.
+#
+# HOW THIS LINE WAS DERIVED (for reproducibility):
+#   Video: test_v001.mp4, resolution 478x850 (portrait).
+#   Same ceiling light fixture as V00 is visible, now at a different pixel
+#   position since the camera was moved back. Tip located by cropping the
+#   frame around the fixture and overlaying a pixel grid:
+#   tip pixel coordinates x = 345 px.
+#   Normalized: x = 345 / 478 = 0.7217573... -> 0.7218 (rounded to 4 dp,
+#   matching the value used in the successful run).
+#
+#   Per the same convention as V00, the virtual counting line is the
+#   VERTICAL projection of that x-coordinate down to the ground — a
+#   vertical line at x_normalized = 0.7218, spanning the full frame
+#   height (y: 0.0 to 1.0). Not the LED itself, not diagonal.
+#
+# RESULT OF THIS EXACT CONFIG (verified, not fabricated):
+#   1 IN (frame 119, t=3.96s, track_id=2, confidence=0.916)
+#   1 OUT (frame 624, t=20.77s, track_id=4, confidence=0.921)
+#   Final occupancy: 0. Matches ground truth.
+# =============================================================================
+
+experiment:
+  experiment_id: "v001_calibration"
+  description: "V001 calibration test - vertical line at LED-tip x-coordinate (x=0.7218), camera moved back from V00"
+
+video:
+  source: "../data/videos/test_v001.mp4"
+  save_annotated_video: true
+  process_every_nth_frame: 1
+
+detection:
+  model_weights: "../models/yolo11n.pt"
+  device: "cpu"
+  confidence_threshold: 0.30
+  iou_threshold: 0.45
+  target_classes: [0]
+  input_image_size: 640
+
+tracker:
+  type: "bytetrack"                 # "bytetrack" | "botsort" — switch here, no code change needed
+
+  bytetrack:
+    track_activation_threshold: 0.25
+    lost_track_buffer: 30
+    minimum_iou_threshold: 0.8
+    minimum_consecutive_frames: 2
+
+  botsort:
+    track_activation_threshold: 0.25
+    lost_track_buffer: 30
+    minimum_iou_threshold_first_assoc: 0.2
+    minimum_iou_threshold_second_assoc: 0.5
+    minimum_iou_threshold_unconfirmed_assoc: 0.3
+    minimum_consecutive_frames: 2
+    high_conf_det_threshold: 0.6
+    enable_cmc: true
+    cmc_method: "sparseOptFlow"
+
+# Vertical line at the LED tip's x-coordinate, full frame height.
+# x1 == x2 == 0.7218  ->  this makes it VERTICAL, not diagonal.
+line:
+  x1: 0.7218
+  y1: 0.0
+  x2: 0.7218
+  y2: 1.0
+  # Same convention as V00: left-to-right (Pass 1) = IN; right-to-left (Pass 2) = OUT.
+  in_is_downward: true
+
+occupancy:
+  initial_occupancy: 0
+  clamp_minimum_zero: true
+
+logging:
+  output_dir: "../results"
+  save_raw_detections: false
