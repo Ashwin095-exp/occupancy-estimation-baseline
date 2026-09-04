@@ -59,7 +59,11 @@ class LineCrossingDetector:
         start = sv.Point(x=x1_norm * frame_width, y=y1_norm * frame_height)
         end = sv.Point(x=x2_norm * frame_width, y=y2_norm * frame_height)
 
-        self.line_zone = sv.LineZone(start=start, end=end)
+        self.line_zone = sv.LineZone(
+    start=start,
+    end=end,
+    triggering_anchors=[sv.Position.BOTTOM_CENTER]
+)
 
         self.line_pixel_coords = {
             "x1": start.x, "y1": start.y, "x2": end.x, "y2": end.y

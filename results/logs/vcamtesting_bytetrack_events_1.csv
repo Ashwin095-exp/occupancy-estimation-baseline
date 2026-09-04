@@ -1,0 +1,2 @@
+frame,timestamp_sec,track_id,detection_confidence,crossing_direction,predicted_event,occupancy_after_event
+224,7.455,3,0.9393,IN,IN,1
