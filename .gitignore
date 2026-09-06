@@ -1,0 +1,21 @@
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Editor/IDE
+.vscode/
+.idea/
+
+# Generated outputs that should be regenerated per-run, not tracked as source
+# (left commented out on purpose: this repo currently tracks results/ as
+# experimental record data — see docs/PAPER_TODO.md before enabling)

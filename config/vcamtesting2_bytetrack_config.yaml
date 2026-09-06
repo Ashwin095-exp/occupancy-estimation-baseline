@@ -1,24 +1,13 @@
-# =============================================================================
-# VCAMTESTING BYTETRACK CONFIG
-# Horizontal counting line for the vcamtesting.mp4 camera view.
-#
-# HOW THIS LINE WAS DERIVED (for reproducibility):
-#   The line endpoints are normalized coordinates and form a horizontal
-#   segment from (0.1792, 0.7992) to (0.6792, 0.7992).
-#
-# RESULT OF THIS EXACT CONFIG (verified, not fabricated):
-#   1 IN (frame 119, t=3.96s, track_id=2, confidence=0.916)
-#   1 OUT (frame 624, t=20.77s, track_id=4, confidence=0.921)
-#   Logged outputs are retained under results/logs/; no ground-truth file is
-#   tracked for this experiment.
-# =============================================================================
+# VCAMTESTING2 BYTETRACK CONFIG
+# Reconstructed from results/raw/vcamtesting2_bytetrack_config_used.yaml.
+# Numeric parameters are retained exactly from that frozen run snapshot.
 
 experiment:
-  experiment_id: "vcamtesting_bytetrack"
-  description: "vcamtesting ByteTrack run with a horizontal line at y=0.7992"
+  experiment_id: "vcamtesting2_bytetrack"
+  description: "vcamtesting2 ByteTrack run with a horizontal line at y=0.7992"
 
 video:
-  source: "../data/videos/vcamtesting.mp4"
+  source: "../data/videos/vcamtesting2.mp4"
   save_annotated_video: true
   process_every_nth_frame: 1
 
@@ -31,7 +20,7 @@ detection:
   input_image_size: 640
 
 tracker:
-  type: "bytetrack"                 # "bytetrack" | "botsort" — switch here, no code change needed
+  type: "bytetrack"
 
   bytetrack:
     track_activation_threshold: 0.25

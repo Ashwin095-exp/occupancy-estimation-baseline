@@ -1,400 +1,338 @@
-# Occupancy Estimation — Frozen Baseline
+# Video-Based Occupancy Estimation via Line-Crossing Counting — Frozen Baseline
 
-Conventional line-crossing occupancy counter: pretrained YOLO detection →
-ByteTrack **or** BoT-SORT tracking (config-selectable) → unvalidated line
-crossing → occupancy counting → CSV logging → optional evaluation against
-ground truth.
+## Abstract / Project Summary
 
-**This is the frozen baseline.** No confidence-aware validation, trajectory
-analysis, or any other research method is implemented yet — this exists to
-(a) prove the pipeline works end-to-end, and (b) generate the reference
-numbers a future proposed method would be compared against.
+This repository implements a conventional line-crossing occupancy counter
+for single-camera video: pretrained YOLO person detection feeds a
+config-selectable multi-object tracker (ByteTrack or BoT-SORT), tracked
+identities are checked against a virtual counting line, and each accepted
+crossing increments or decrements a running occupancy count. Results are
+logged per-event and per-frame to CSV, with an optional comparison against
+a hand-labeled ground-truth CSV.
 
----
+**This is the frozen baseline.** No confidence filtering beyond the
+detector's own threshold, no track-persistence requirement, and no
+trajectory or direction-consistency validation is implemented — the
+pipeline reports every raw crossing candidate as-is. This exists to (a)
+prove the pipeline runs end-to-end and (b) generate reference numbers that
+a future validation method would be compared against. No novel algorithm
+is claimed at this stage; see "Potential Research Contribution" in
+`docs/PAPER_FACTS.md`.
 
-## 1. Project structure
+## System Overview
+
+Verified from `src/main.py` and the modules it imports:
+
+```text
+Input Video (cv2.VideoCapture)
+       │
+       ▼
+PersonDetector (Ultralytics YOLO, detection only — no model.track())
+       │  sv.Detections, filtered by confidence/IoU/class in config
+       ▼
+PersonTracker (ByteTrackTracker or BoTSORTTracker, from the `trackers`
+       │        package — selected by config, no code change needed)
+       │  tracker_id == -1 means "not yet confirmed"
+       ▼
+LineCrossingDetector (wraps supervision.LineZone, BOTTOM_CENTER anchor)
+       │  drops unconfirmed (-1) tracks first; reports every raw
+       │  IN/OUT crossing, no validation
+       ▼
+OccupancyEngine (pure counter: +1 on IN, -1 on OUT, optional clamp at 0)
+       │
+       ├──────────────► events.csv (one row per accepted crossing)
+       │
+       ├──────────────► occupancy_timeline.csv (one row per processed frame)
+       │
+       └──────────────► annotated video (boxes, IDs, line, occupancy overlay)
+                            │
+                            ▼
+                    evaluation.py (optional — only if a ground-truth
+                                    CSV is supplied; not run for any
+                                    experiment in this repo yet, see
+                                    docs/PAPER_TODO.md)
+```
+
+## Repository Structure
 
 ```
-occupancy_estimation_baseline/
+occupancy-estimation-baseline/
 ├── README.md
 ├── requirements.txt
+├── .gitignore
 ├── config/
-│   ├── baseline_config.yaml           # default template, ByteTrack, generic line — calibrate before use
-│   ├── botsort_config.yaml            # same as above, BoT-SORT selected
-│   └── v00_calibration_config.yaml    # worked example: vertical line at LED-tip x-coordinate
+│   ├── baseline_config.yaml              # generic ByteTrack template — placeholder video/line, never run
+│   ├── botsort_config.yaml               # generic BoT-SORT template — placeholder video/line, never run
+│   ├── v001_botsort_config.yaml          # test_v001.mp4, BoT-SORT, vertical line x=0.7218
+│   ├── v001_calibration_config.yaml      # test_v001.mp4, ByteTrack, vertical line x=0.7218
+│   └── vcamtesting_bytetrack_config.yaml # vcamtesting.mp4, ByteTrack, horizontal line y=0.7992
 ├── models/
-│   └── yolo11n.pt                      # YOLO weights — auto-downloaded on first run if absent
+│   └── yolo11n.pt                        # YOLO weights, auto-downloaded by Ultralytics if absent
 ├── src/
-│   ├── config_loader.py                # loads + validates + freezes config per run
-│   ├── detection.py                    # YOLO wrapper — detection ONLY, no tracking
-│   ├── tracking.py                     # ByteTrack / BoT-SORT wrapper, selected by config
-│   ├── line_crossing.py                # conventional, unvalidated line-crossing logic
-│   ├── occupancy.py                    # pure counting engine, no CV code at all
-│   ├── event_logger.py                 # CSV logging, never overwrites prior runs
-│   ├── evaluation.py                   # compares pipeline output to ground truth (optional)
-│   └── main.py                         # orchestrator — wires modules together, no logic of its own
+│   ├── config_loader.py                  # loads/validates YAML, freezes a copy per run
+│   ├── detection.py                      # YOLO wrapper — detection ONLY
+│   ├── tracking.py                       # ByteTrack / BoT-SORT wrapper, selected by config
+│   ├── line_crossing.py                  # conventional, unvalidated line-crossing logic
+│   ├── occupancy.py                      # pure counting engine, no CV code
+│   ├── event_logger.py                   # CSV logging, never overwrites prior runs
+│   ├── evaluation.py                     # compares output to ground truth (not yet exercised — see docs/PAPER_TODO.md)
+│   └── main.py                           # orchestrator only, no algorithmic logic of its own
 ├── data/
-│   ├── videos/                         # PUT YOUR INPUT VIDEOS HERE
+│   ├── videos/                           # test_v001.mp4, vcamtesting.mp4, vcamtesting2.mp4
 │   └── ground_truth/
-│       └── ground_truth_template.csv   # format reference for evaluation.py
-└── results/
-    ├── raw/                            # frozen config copy for every run
-    ├── logs/                           # events + occupancy timeline CSVs
-    └── annotated/                      # QA video with boxes/IDs/line/occupancy overlay
+│       └── ground_truth_template.csv     # format reference only — no populated ground truth exists yet
+├── results/
+│   ├── raw/                              # frozen config copy for every run actually executed
+│   ├── logs/                             # events + occupancy timeline CSVs
+│   ├── annotated/                        # QA videos (boxes/IDs/line/occupancy overlay)
+│   └── *.jpg                             # calibration reference stills (grid/line overlays)
+└── docs/
+    ├── EXPERIMENTS.md
+    ├── SYSTEM_SPECIFICATION.md
+    ├── PAPER_FACTS.md
+    └── PAPER_TODO.md
 ```
 
-Every module only knows about its own job — `detection.py` never tracks,
+> **Note on `vcamtesting2`:** results exist for a `vcamtesting2_bytetrack`
+> experiment (events, timeline, annotated video, and a frozen config copy
+> in `results/raw/`), but **no corresponding source config file is tracked
+> in `config/`.** The experiment cannot currently be re-run from the
+> `config/` directory as documented — see `docs/PAPER_TODO.md`.
+
+Every module owns exactly one job: `detection.py` never tracks,
 `tracking.py` never knows how detections were produced, `line_crossing.py`
-never validates (it reports every raw crossing candidate), `occupancy.py`
-has no computer-vision code at all, and `main.py` contains no logic of its
-own, only orchestration. A future confidence-aware method would slot in as
-a new module between `line_crossing.py` and `occupancy.py` without
-modifying any of the files above it.
+never validates (it reports every raw candidate), `occupancy.py` has no
+computer-vision code, and `main.py` only wires the others together. A
+future validation stage would slot in between `line_crossing.py` and
+`occupancy.py` without touching anything above it.
 
----
+## Methodology
 
-## 2. Windows setup instructions
+- **Detection:** Ultralytics YOLO (`yolo11n.pt`), called via `model.predict()`
+  per frame — the built-in `model.track()` is deliberately not used, so
+  detection and tracking stay independently swappable. Filtered by
+  confidence threshold, IoU threshold, target class list (COCO class 0 =
+  person by default), and inference image size, all from config.
+- **Tracking:** Two interchangeable backends from the standalone `trackers`
+  (Roboflow) package — `ByteTrackTracker` (Zhang et al.'s ByteTrack) and
+  `BoTSORTTracker` (Aharon et al.'s BoT-SORT). Selected by `tracker.type`
+  in config; no source change needed to switch. BoT-SORT optionally uses
+  Camera Motion Compensation, which needs the raw frame — `tracking.py`
+  hides this difference behind one `update()` call. A `tracker_id` of `-1`
+  means the track is not yet confirmed; `line_crossing.py` filters these
+  out before they can affect crossing state.
+- **Line definition:** Two endpoints `(x1,y1)-(x2,y2)` in normalized
+  coordinates (0.0–1.0 of frame width/height), so one config works across
+  resolutions. Can be horizontal, vertical, or diagonal depending on the
+  two points chosen. `in_is_downward` is a semantic label only — it
+  selects which of Supervision's two raw crossing signals is reported as
+  "IN" vs "OUT"; the correct value must be verified empirically per camera
+  setup by checking the annotated video and events CSV.
+- **Crossing logic:** Wraps `supervision.LineZone` with a `BOTTOM_CENTER`
+  triggering anchor. No confidence filtering beyond the detector's own
+  threshold, no minimum track age, and no protection against a track
+  crossing back and forth (each crossing is reported independently) — this
+  is by design for the frozen baseline.
+- **Occupancy update:** `OccupancyEngine` increments on IN, decrements on
+  OUT, and optionally clamps at a minimum of zero (`clamp_minimum_zero` in
+  config). It tracks running totals of entries/exits and the maximum
+  occupancy observed.
+- **Logging:** `EventLogger` writes one row per accepted crossing to
+  `<experiment_id>_events.csv` and one row per processed frame to
+  `<experiment_id>_occupancy_timeline.csv`. Existing files for an
+  `experiment_id` are never overwritten — a rerun gets a numeric suffix
+  (`_1`, `_2`, ...).
+- **Evaluation:** `evaluation.py` matches predicted vs. ground-truth
+  entry/exit events within a configurable frame tolerance (default 15
+  frames) and reports precision/recall/F1 per direction, plus occupancy
+  MAE and max error against a ground-truth occupancy series (dense or
+  inferred from sparse event rows). It computes only what it has real
+  data for — missing ground truth is reported as a note, never guessed.
+  **No experiment in this repository currently has a populated
+  ground-truth CSV**, so no evaluation run has actually been executed —
+  only the template exists at `data/ground_truth/ground_truth_template.csv`.
 
-### 2.1 Prerequisites
+## Configuration
 
-- **Python 3.10, 3.11, or 3.12** (64-bit). Download from
-  [python.org](https://www.python.org/downloads/windows/) if you don't have
-  it. During install, check **"Add python.exe to PATH"**.
-- Internet access for the initial setup (package install + one-time YOLO
-  weights download, ~5.6 MB).
+Every run is driven entirely by one YAML file (`config_loader.py` is the
+single place that reads it — nothing is hard-coded). Top-level sections:
+`experiment` (id, description), `video` (source path, whether to save an
+annotated video, frame subsampling), `detection` (model weights, device,
+confidence/IoU thresholds, target classes, inference size), `tracker`
+(active type plus both `bytetrack` and `botsort` parameter blocks — only
+the active one is used), `line` (two normalized endpoints + the
+`in_is_downward` direction flag), `occupancy` (initial value, zero-clamp
+flag), and `logging` (output directory). `frame_rate` for the tracker is
+taken from the actual input video at runtime, not set in config.
 
-### 2.2 Get the project onto your machine
+## Calibration
 
-Copy the entire `occupancy_estimation_baseline/` folder to your laptop,
-e.g. to `C:\Users\<you>\occupancy_estimation_baseline\`.
+The line is calibrated per camera setup by picking two pixel points that
+form a line roughly perpendicular to the direction people walk through the
+frame, then normalizing: `x_normalized = pixel_x / frame_width`,
+`y_normalized = pixel_y / frame_height`. The tracked config files document
+two different calibration approaches actually used:
 
-### 2.3 Open a terminal in the project folder
+- `v001_botsort_config.yaml` / `v001_calibration_config.yaml`: a
+  **vertical** line at `x = 0.7218`, derived from a ceiling light
+  fixture's tip pixel position (`345 / 478 px`), spanning the full frame
+  height — for `test_v001.mp4` (478×850, portrait).
+- `vcamtesting_bytetrack_config.yaml`: a **horizontal** line at
+  `y = 0.7992` between `x = 0.1792` and `x = 0.6792` — for
+  `vcamtesting.mp4` (848×478, landscape). Note: this file's header comment
+  and `description` field are copy-pasted from the V001 vertical-line
+  template and inaccurately describe this as "a vertical line at
+  x=0.7218" — see `docs/PAPER_TODO.md`, this is a documentation bug, the
+  actual line coordinates used are correct and as stated above.
 
-Open **PowerShell** (or Command Prompt) and navigate to the project:
+`results/*.jpg` (`vcamtesting_grid.jpg`, `vcamtesting_line2.jpg`,
+`vcamtesting_new_line.jpg`, `vcamtesting2_line3.jpg`) are calibration
+reference stills — grid/line overlays used during this process.
 
-```powershell
-cd C:\Users\<you>\occupancy_estimation_baseline
-```
+## Trackers
 
-### 2.4 Create and activate a virtual environment
+`tracker.type` in config selects `"bytetrack"` or `"botsort"` — both
+blocks stay present in every config file for comparison, only the active
+one is applied (`config_loader.py: TrackerConfig.active_params()`).
+Confirmed by the two `v001_*` experiments, which run the identical video
+and line through both trackers.
 
-```powershell
-python -m venv venv
-venv\Scripts\activate
-```
+## Running the System
 
-Your prompt should now show `(venv)` at the start of the line. If
-PowerShell blocks the activation script with an execution-policy error, run
-this once (as your normal user, not admin) and try activating again:
-
-```powershell
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-```
-
-### 2.5 Install dependencies
-
-```powershell
-pip install --upgrade pip
-pip install -r requirements.txt
-```
-
-This installs Ultralytics (YOLO), OpenCV, Supervision, the `trackers`
-package (ByteTrack + BoT-SORT), PyTorch (CPU build — see note below), and
-PyYAML. It will take a few minutes; PyTorch is the largest download.
-
-> **GPU note:** the pinned `torch`/`torchvision` versions above install a
-> standard PyPI build. If you have an NVIDIA GPU and want CUDA
-> acceleration, install a CUDA-enabled PyTorch build for your GPU/driver
-> from [pytorch.org](https://pytorch.org/get-started/locally/) *before*
-> running `pip install -r requirements.txt` (pip will not downgrade an
-> already-satisfied torch requirement), then set `device: "cuda:0"` in
-> your config. CPU works fine for testing at the frame rates in this
-> project; it's just slower than a GPU would be.
-
-### 2.6 First run will download YOLO weights automatically
-
-The first time you run the pipeline, Ultralytics will download
-`yolo11n.pt` (~5.6 MB) from its official GitHub release into `models/` if
-it isn't already there. This needs internet access once; after that it's
-cached locally and reused.
-
----
-
-## 3. Input video folder structure
-
-Place your video files in `data/videos/`:
-
-```
-data/videos/
-├── Test_v00.mp4
-├── (other recordings you make later)
-```
-
-Reference them in a config's `video.source` field as a path relative to
-`src/` (since that's where you run `main.py` from), e.g.:
-
-```yaml
-video:
-  source: "../data/videos/Test_v00.mp4"
-```
-
----
-
-## 4. Exact commands to run a video through the pipeline
-
-Always run from inside the `src/` folder:
+Verified against the actual repository (config loading tested directly;
+full inference was not re-executed in this audit — see
+`docs/PAPER_TODO.md`). Always run from inside `src/`:
 
 ```powershell
 cd src
-python main.py --config ../config/v00_calibration_config.yaml
+python main.py --config ../config/v001_calibration_config.yaml
 ```
 
-To run the generic default config (ByteTrack) on your own video, after
-editing `config/baseline_config.yaml`'s `video.source` and `line` section
-for your camera setup:
+Run the same video/line through BoT-SORT instead, no code change:
+
+```powershell
+python main.py --config ../config/v001_botsort_config.yaml
+```
+
+Run the generic ByteTrack template on your own video (after editing
+`video.source` and the `line` section for your camera):
 
 ```powershell
 python main.py --config ../config/baseline_config.yaml
 ```
 
-To run the same video through BoT-SORT instead (for tracker comparison),
-with no code changes — just point at the BoT-SORT config:
-
-```powershell
-python main.py --config ../config/botsort_config.yaml
-```
-
-Optionally override the experiment ID from the command line (useful when
-batch-running the same config against multiple videos):
+Override the experiment ID from the command line (useful for batch runs):
 
 ```powershell
 python main.py --config ../config/baseline_config.yaml --experiment_id my_run_1
 ```
 
-### Running evaluation against ground truth (optional)
+### Evaluation (not yet exercised in this repo)
 
-Only meaningful once you have a hand-labeled ground-truth CSV (see
+Only meaningful once a populated ground-truth CSV exists (see
 `data/ground_truth/ground_truth_template.csv` for the format):
 
 ```powershell
-python evaluation.py --experiment_id v00_calibration ^
-  --events_csv ../results/logs/v00_calibration_events.csv ^
-  --timeline_csv ../results/logs/v00_calibration_occupancy_timeline.csv ^
-  --ground_truth_csv ../data/ground_truth/v00_ground_truth.csv ^
+python evaluation.py --experiment_id v001_calibration ^
+  --events_csv ../results/logs/v001_calibration_events.csv ^
+  --timeline_csv ../results/logs/v001_calibration_occupancy_timeline.csv ^
+  --ground_truth_csv ../data/ground_truth/<your_ground_truth>.csv ^
   --initial_occupancy 0 ^
-  --output_csv ../results/logs/v00_calibration_evaluation.csv
+  --output_csv ../results/logs/v001_calibration_evaluation.csv
 ```
 
-(The `^` line-continuation character is PowerShell/CMD syntax; on one line
-it's the same command without the `^` characters and line breaks.)
+(`^` is the PowerShell/CMD line-continuation character; the same command
+works on one line without it.)
 
----
+## Experiments
 
-## 5. Output folder structure
+See `docs/EXPERIMENTS.md` for the full table. Four experiments have logged
+results in this repository: `v001_calibration`, `v001_botsort`,
+`vcamtesting_bytetrack`, `vcamtesting2_bytetrack`.
 
-After a run, you'll find:
+## Results
 
-```
-results/
-├── raw/
-│   └── <experiment_id>_config_used.yaml       # exact config that produced this run — traceability
-├── logs/
-│   ├── <experiment_id>_events.csv              # one row per accepted crossing event
-│   ├── <experiment_id>_occupancy_timeline.csv  # one row per processed frame
-│   └── <experiment_id>_evaluation.csv          # only if you ran evaluation.py
-└── annotated/
-    └── <experiment_id>_annotated.mp4           # visual QA video (boxes, IDs, line, occupancy overlay)
-```
+Real, verified numbers extracted directly from the tracked CSV files (not
+re-derived or estimated):
 
-Existing result files for the same `experiment_id` are **never
-overwritten** — a rerun gets a numeric suffix (`_1`, `_2`, ...) instead.
+| Experiment | Tracker | Video | Events | Final Occupancy | Max Occupancy |
+|---|---|---|---|---|---|
+| `v001_calibration` | ByteTrack | test_v001.mp4 | 1 IN (f119, conf 0.9166), 1 OUT (f624, conf 0.9212) | 0 | 1 |
+| `v001_botsort` | BoT-SORT | test_v001.mp4 | 1 IN (f119, conf 0.9166), 1 OUT (f624, conf 0.9212) | 0 | 1 |
+| `vcamtesting_bytetrack` | ByteTrack | vcamtesting.mp4 | Not consistent across reruns — see Limitations | Not consistent across reruns | 1 (in the first logged run) |
+| `vcamtesting2_bytetrack` | ByteTrack | vcamtesting2.mp4 | 1 OUT (f101, conf 0.7952), clamped at 0 | 0 | 0 |
 
-### `events.csv` columns
+No accuracy, precision, recall, F1, MAE, RMSE, FPS, or latency figures are
+reported here because no ground-truth CSV exists yet to compute them
+against, and this audit did not re-run the pipeline to measure runtime
+performance. `docs/PAPER_FACTS.md` and `docs/PAPER_TODO.md` mark exactly
+what is verified versus still needed.
 
-| column | meaning |
-|---|---|
-| `frame` | frame index (0-based) the event was logged on |
-| `timestamp_sec` | frame index / video FPS |
-| `track_id` | the confirmed tracker ID that crossed the line |
-| `detection_confidence` | YOLO confidence for that detection at the crossing frame |
-| `crossing_direction` | `IN` or `OUT` |
-| `predicted_event` | same as `crossing_direction` (kept as a separate column for downstream compatibility with experiment logs) |
-| `occupancy_after_event` | running occupancy immediately after this event was applied |
+## Reproducibility
 
-### `occupancy_timeline.csv` columns
+- Exact package versions are pinned in `requirements.txt`
+  (`ultralytics==8.4.121`, `opencv-python-headless==4.13.0.92`,
+  `supervision==0.30.0`, `trackers==2.6.0`, `torch==2.13.0`,
+  `torchvision==0.28.0`, `PyYAML==6.0.3`) — all confirmed resolvable on
+  PyPI as of this audit.
+- Model weights: `yolo11n.pt`, Ultralytics' official pretrained release,
+  auto-downloaded on first run if not already present in `models/`.
+- Every executed run's exact config is copied to
+  `results/raw/<experiment_id>_config_used.yaml`.
+- **Important finding:** `v001_calibration` (3 reruns), `v001_botsort`,
+  and `vcamtesting2_bytetrack` (2 reruns) are bit-for-bit reproducible
+  across their logged reruns. `vcamtesting_bytetrack` is **not** — see
+  Limitations below.
+- Compiled bytecode in `src/__pycache__/` shows the pipeline has actually
+  been executed under Python 3.12, 3.13, and 3.14, even though this is
+  broader than any officially stated supported range in this repository
+  (none was previously documented; do not assume 3.10–3.12 support
+  without testing — see `docs/PAPER_TODO.md`).
 
-| column | meaning |
-|---|---|
-| `frame` | frame index |
-| `timestamp_sec` | frame index / video FPS |
-| `occupancy` | current occupancy at this frame |
-| `max_occupancy_so_far` | running maximum occupancy up to this frame |
+## Limitations
 
----
+- No confidence filtering beyond the detector's own threshold, no
+  minimum track-age/persistence check, and no trajectory or direction
+  validation before counting a crossing — a track crossing back and forth
+  produces multiple raw events, by design.
+- Camera-specific calibration is required per setup; the line and
+  `in_is_downward` flag must be verified empirically for each new camera
+  position.
+- **Reproducibility gap (verified):** two logged runs of
+  `vcamtesting_bytetrack_config.yaml` against the same video produced
+  different outcomes. One run recorded a single IN event at frame 224
+  (final occupancy 1); another run of the identical config recorded a
+  single OUT event at frame 136 instead (final occupancy 0, clamped). The
+  root cause has not been diagnosed as part of this audit — see
+  `docs/PAPER_TODO.md`. This must be resolved or explained before any
+  quantitative claim is made using this experiment.
+- No ground-truth CSV currently exists for any experiment beyond an empty
+  template, so no precision/recall/F1/MAE figures can yet be computed by
+  `evaluation.py` for this repository.
+- The `vcamtesting2_bytetrack` experiment has results but no tracked
+  source config, so it cannot currently be reproduced from `config/` as
+  documented.
+- Comments inside `vcamtesting_bytetrack_config.yaml` and the frozen
+  `results/raw/vcamtesting2_bytetrack_config_used.yaml` are copy-pasted
+  from the V001 vertical-line template and inaccurately describe a
+  vertical line at x=0.7218, when the actual `line:` values in both files
+  define a different, horizontal line. The line values themselves (used
+  to produce the logged results) are correct; only the prose comments are
+  wrong.
 
-## 6. How the virtual counting line is defined
+## Future Work
 
-The line is defined in config by two endpoints, `(x1,y1)` and `(x2,y2)`,
-in **normalized coordinates** (0.0–1.0 relative to frame width/height), so
-the same config works regardless of video resolution:
+Not implemented — potential directions only, to be proposed and evaluated
+separately from this frozen baseline:
 
-```yaml
-line:
-  x1: 0.8222
-  y1: 0.0
-  x2: 0.8222
-  y2: 1.0
-  in_is_downward: true
-```
+- Confidence-aware event validation
+- Trajectory-based crossing validation
+- Adaptive or multi-line crossing logic
+- Improved occlusion handling
+- Temporal/persistence-based event confirmation
 
-Because it's just two points, the line can be:
+## Citations
 
-- **Horizontal** (`y1 == y2`) — appropriate when people move mostly
-  *vertically* through the frame (e.g. an overhead camera looking down a
-  hallway).
-- **Vertical** (`x1 == x2`) — appropriate when people move mostly
-  *horizontally* through the frame (e.g. a side-on camera watching someone
-  walk left-to-right past a doorway). **This is the case used for
-  V00** — see section 7 below.
-- **Diagonal** — any other combination of endpoints.
-
-To calibrate for your own camera: pick two pixel points that form a line
-roughly perpendicular to the direction people actually walk through your
-frame, then convert to normalized coordinates:
-
-```
-x_normalized = pixel_x / frame_width
-y_normalized = pixel_y / frame_height
-```
-
-`in_is_downward` is a **semantic label, not a geometric constraint** — it
-only controls which of the two raw crossing signals gets reported as `IN`
-vs `OUT`. Its correct value depends on your specific camera setup and
-should be verified empirically: run once, check the annotated video and
-the events CSV against what you know actually happened, and flip the
-boolean if IN/OUT come out reversed.
-
----
-
-## 7. V00 calibration: the LED-tip line, explained
-
-`config/v00_calibration_config.yaml` is a **worked, documented example** of
-line calibration for the `Test_v00.mp4` recording.
-
-**How the line was derived:** `Test_v00.mp4` is 478×850 (portrait). A
-ceiling-mounted light fixture ("LED") is visible near the top of the
-frame. Its tip (near end, closest to the camera) was located precisely by
-cropping the frame around the fixture and overlaying a pixel grid, giving
-tip pixel coordinates **x = 393px**. Normalized: `393 / 478 = 0.8222`.
-
-Per the calibration instruction, the counting line is the **vertical
-projection of that x-coordinate down to the ground** — i.e. a vertical
-line at `x_normalized = 0.8222`, spanning the full frame height
-(`y1=0.0, y2=1.0`). The LED itself is **not** used as the line (it is not
-a horizontal line at the LED's height), and the line is **not diagonal**.
-
-### Known limitation found during calibration — read before recording more data
-
-Running the frozen, unmodified baseline against `Test_v00.mp4` with this
-correctly-placed vertical line currently produces **0 detected IN / 0
-detected OUT**, not the expected 1/1. This was verified by direct testing,
-not assumed — the result is reported honestly here rather than tuned away.
-
-**Root cause: camera distance, not line placement.** The person's
-detection bounding box occupies roughly **35–100% of the frame width**
-during the walk (the camera is positioned close to the subject). When a
-single bounding box is that wide, it straddles any vertical line placed
-within the frame for many consecutive frames, instead of cleanly
-transitioning from "left of line" to "right of line" in one frame — which
-is what standard line-crossing logic (Supervision's `LineZone`, used here)
-expects. This is compounded by a second, independent finding: the tracker
-loses and re-acquires the person's ID repeatedly during fast, close-range
-motion (up to 9 distinct IDs were observed across just two passes in this
-clip), so even a geometrically perfect line rarely sees one continuous
-track ID crossing it.
-
-**What this means for recording the rest of your dataset:** position the
-camera further from the subject so a person's bounding box is a modest
-fraction of frame width (a reasonable target: under ~25–30%). This is
-standard practice for line-crossing counting cameras generally, not
-specific to this codebase.
-
-**What was deliberately NOT done:** the algorithm, thresholds, and line
-placement were not adjusted to force a 1/1 result on this clip. Per
-instruction, this is the frozen baseline — V00 is a calibration/diagnostic
-video, not a tuning target.
-
----
-
-## 8. Verification checklist — what a successful run should look like
-
-Use this checklist once you record a video with adequate camera distance
-(see section 7). It describes what a **correctly functioning** run looks
-like — it is a target for well-framed footage, not a claim about the
-current `Test_v00.mp4` result (see section 7's limitation).
-
-For a clip where one person walks into frame, crosses the line once, and
-walks back out (crossing it once more), a healthy run should show:
-
-- [ ] **Console summary** reports `Total entries: 1` and `Total exits: 1`
-- [ ] **`events.csv`** has exactly two rows: one `IN`, one `OUT`, in
-      chronological order, at frame numbers matching when the person
-      visually crosses the line in the annotated video
-- [ ] **Both rows share the same `track_id`** if the person never left and
-      re-entered frame between the two crossings — a different `track_id`
-      on the OUT row is only expected if the person left the frame
-      entirely between passes (as in V00, where they exit-frame between
-      the two crossings)
-- [ ] **`detection_confidence`** on both rows is reasonably high (as a
-      rough guide, above ~0.5) — very low confidence at the exact crossing
-      frame is worth a visual check
-- [ ] **`occupancy_timeline.csv`** shows the value **0 → 1 → 0**: starts
-      at the configured `initial_occupancy` (0), steps up to 1 at the IN
-      event's frame, stays at 1 until the OUT event's frame, then returns
-      to 0 and stays there
-- [ ] **Annotated video**: the bounding box tracks the person continuously
-      with a stable ID label (not flickering between `unconfirmed` and
-      multiple different ID numbers), the line renders at the intended
-      position, and the on-screen `in:`/`out:` counters and `Occupancy:`
-      overlay match the CSV values at the corresponding timestamps
-- [ ] **Bounding box width** stays a modest fraction of total frame width
-      throughout (visual check on the annotated video) — if it's
-      regularly over ~40–50% of frame width, back the camera up before
-      recording further videos
-
-If any of these don't hold, don't proceed to record the rest of the
-dataset — fix the camera setup or line placement first and re-run this
-checklist on a new short test clip.
-
----
-
-## 9. What this baseline deliberately does NOT do
-
-- No confidence filtering beyond the YOLO detection threshold.
-- No minimum track-age / persistence check before counting a crossing.
-- No trajectory or direction consistency validation.
-- No duplicate-event protection — a track crossing back and forth will
-  generate multiple raw events, by design (this is the known weakness a
-  future proposed method is meant to address).
-
-## 10. Other known limitations
-
-- `sv.ByteTrack` is deprecated as of `supervision==0.28.0`; this project
-  uses the replacement `ByteTrackTracker` (and `BoTSORTTracker`) from the
-  standalone `trackers` package instead — no deprecation warnings should
-  appear during normal use.
-- Tracker ID fragmentation under fast/close motion (see section 7) is a
-  general limitation of the frozen baseline, not specific to V00 — expect
-  it on any footage with similar camera-to-subject distance.
-- `evaluation.py` only computes metrics it has real ground-truth data for;
-  it reports missing metrics with an explanatory note rather than
-  estimating them.
-
-## 11. Reproducibility
-
-- Exact package versions are pinned in `requirements.txt` — freeze these
-  before running final experiments; don't update mid-study.
-- Exact model weights file is recorded in each config (`yolo11n.pt`,
-  official Ultralytics GitHub release).
-- Every run's config is copied into `results/raw/` — results can always be
-  traced back to the parameters that produced them.
+See `docs/PAPER_FACTS.md` for the technologies used (Ultralytics YOLO,
+ByteTrack, BoT-SORT, Supervision) pending exact bibliographic confirmation
+from the author before the paper is written.

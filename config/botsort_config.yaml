@@ -76,7 +76,7 @@ tracker:
 #     Use when people cross moving mostly horizontally in the frame (e.g. a
 #     side-on camera watching someone walk left-to-right past a doorway).
 #     This is the case used for the V00 calibration video — see
-#     config/v00_calibration_config.yaml for a worked, documented example.
+#     config/v001_botsort_config.yaml for a worked, documented example.
 #
 #   DIAGONAL line: any other combination of endpoints.
 #
