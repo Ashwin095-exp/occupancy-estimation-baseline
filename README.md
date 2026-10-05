@@ -65,7 +65,8 @@ occupancy-estimation-baseline/
 │   ├── botsort_config.yaml               # generic BoT-SORT template — placeholder video/line, never run
 │   ├── v001_botsort_config.yaml          # test_v001.mp4, BoT-SORT, vertical line x=0.7218
 │   ├── v001_calibration_config.yaml      # test_v001.mp4, ByteTrack, vertical line x=0.7218
-│   └── vcamtesting_bytetrack_config.yaml # vcamtesting.mp4, ByteTrack, horizontal line y=0.7992
+│   ├── vcamtesting_bytetrack_config.yaml # vcamtesting.mp4, ByteTrack, horizontal line y=0.7992
+│   └── vcamtesting2_bytetrack_config.yaml # vcamtesting2.mp4, ByteTrack, horizontal line y=0.7992
 ├── models/
 │   └── yolo11n.pt                        # YOLO weights, auto-downloaded by Ultralytics if absent
 ├── src/
@@ -93,11 +94,10 @@ occupancy-estimation-baseline/
     └── PAPER_TODO.md
 ```
 
-> **Note on `vcamtesting2`:** results exist for a `vcamtesting2_bytetrack`
-> experiment (events, timeline, annotated video, and a frozen config copy
-> in `results/raw/`), but **no corresponding source config file is tracked
-> in `config/`.** The experiment cannot currently be re-run from the
-> `config/` directory as documented — see `docs/PAPER_TODO.md`.
+> **Note on `vcamtesting2`:** its source config is tracked in
+> `config/vcamtesting2_bytetrack_config.yaml`. The file was recovered from
+> the frozen snapshot under `results/raw/`; the existing result artifacts
+> remain unchanged.
 
 Every module owns exactly one job: `detection.py` never tracks,
 `tracking.py` never knows how detections were produced, `line_crossing.py`
@@ -199,9 +199,8 @@ and line through both trackers.
 
 ## Running the System
 
-Verified against the actual repository (config loading tested directly;
-full inference was not re-executed in this audit — see
-`docs/PAPER_TODO.md`). Always run from inside `src/`:
+The commands below match the repository's current executable layout. Always
+run from inside `src/`:
 
 ```powershell
 cd src
@@ -309,16 +308,14 @@ what is verified versus still needed.
 - No ground-truth CSV currently exists for any experiment beyond an empty
   template, so no precision/recall/F1/MAE figures can yet be computed by
   `evaluation.py` for this repository.
-- The `vcamtesting2_bytetrack` experiment has results but no tracked
-  source config, so it cannot currently be reproduced from `config/` as
-  documented.
-- Comments inside `vcamtesting_bytetrack_config.yaml` and the frozen
-  `results/raw/vcamtesting2_bytetrack_config_used.yaml` are copy-pasted
-  from the V001 vertical-line template and inaccurately describe a
-  vertical line at x=0.7218, when the actual `line:` values in both files
-  define a different, horizontal line. The line values themselves (used
-  to produce the logged results) are correct; only the prose comments are
-  wrong.
+- The `vcamtesting2_bytetrack` source config was recovered from its frozen
+  result snapshot; its logged outputs remain the authoritative record of
+  the runs already performed.
+- The frozen raw snapshot for `vcamtesting2` retains stale historical
+  comments that describe a vertical line, while its numeric `line:` values
+  define a horizontal segment. The new tracked source config corrects the
+  prose; the raw snapshot was intentionally left unchanged as an
+  experimental result artifact.
 
 ## Future Work
 
