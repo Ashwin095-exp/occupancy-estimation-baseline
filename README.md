@@ -1,335 +1,403 @@
-# Video-Based Occupancy Estimation via Line-Crossing Counting — Frozen Baseline
+Act as a senior technical writer, computer vision engineer, GitHub profile designer, and open-source documentation specialist.
 
-## Abstract / Project Summary
+Your task is to analyze my existing GitHub repository and completely redesign its README.md into a visually impressive, technically accurate, professional project showcase.
 
-This repository implements a conventional line-crossing occupancy counter
-for single-camera video: pretrained YOLO person detection feeds a
-config-selectable multi-object tracker (ByteTrack or BoT-SORT), tracked
-identities are checked against a virtual counting line, and each accepted
-crossing increments or decrements a running occupancy count. Results are
-logged per-event and per-frame to CSV, with an optional comparison against
-a hand-labeled ground-truth CSV.
+**Repository:** https://github.com/Ashwin095-exp/occupancy-estimation-baseline
 
-**This is the frozen baseline.** No confidence filtering beyond the
-detector's own threshold, no track-persistence requirement, and no
-trajectory or direction-consistency validation is implemented — the
-pipeline reports every raw crossing candidate as-is. This exists to (a)
-prove the pipeline runs end-to-end and (b) generate reference numbers that
-a future validation method would be compared against. No novel algorithm
-is claimed at this stage; see "Potential Research Contribution" in
-`docs/PAPER_FACTS.md`.
+Do not create a generic README. I want a premium, research-oriented computer vision project page that communicates the project's purpose, technical implementation, experimental methodology, results, and potential real-world applications.
 
-## System Overview
+The final README should resemble the documentation of a polished open-source computer vision project.
 
-Verified from `src/main.py` and the modules it imports:
+# 1. FIRST: ANALYZE THE REPOSITORY
 
-```text
-Input Video (cv2.VideoCapture)
-       │
-       ▼
-PersonDetector (Ultralytics YOLO, detection only — no model.track())
-       │  sv.Detections, filtered by confidence/IoU/class in config
-       ▼
-PersonTracker (ByteTrackTracker or BoTSORTTracker, from the `trackers`
-       │        package — selected by config, no code change needed)
-       │  tracker_id == -1 means "not yet confirmed"
-       ▼
-LineCrossingDetector (wraps supervision.LineZone, BOTTOM_CENTER anchor)
-       │  drops unconfirmed (-1) tracks first; reports every raw
-       │  IN/OUT crossing, no validation
-       ▼
-OccupancyEngine (pure counter: +1 on IN, -1 on OUT, optional clamp at 0)
-       │
-       ├──────────────► events.csv (one row per accepted crossing)
-       │
-       ├──────────────► occupancy_timeline.csv (one row per processed frame)
-       │
-       └──────────────► annotated video (boxes, IDs, line, occupancy overlay)
-                            │
-                            ▼
-                    evaluation.py (optional — only if a ground-truth
-                                    CSV is supplied; not run for any
-                                    experiment in this repo yet, see
-                                    docs/PAPER_TODO.md)
-```
+Before writing the README, inspect the existing repository thoroughly.
 
-## Repository Structure
+Examine:
+- Source code and project structure.
+- Python scripts and execution workflows.
+- YOLO model integration.
+- Object detection and multi-object tracking implementation.
+- ByteTrack and BoT-SORT configurations.
+- Virtual-line crossing and occupancy estimation logic.
+- Input video processing and output generation.
+- Experimental videos and test configurations.
+- Screenshots, annotated videos, result images, and available evaluation data.
+- Requirements, dependencies, and installation instructions.
 
-```
-occupancy-estimation-baseline/
-├── README.md
-├── requirements.txt
-├── .gitignore
-├── config/
-│   ├── baseline_config.yaml              # generic ByteTrack template — placeholder video/line, never run
-│   ├── botsort_config.yaml               # generic BoT-SORT template — placeholder video/line, never run
-│   ├── v001_botsort_config.yaml          # test_v001.mp4, BoT-SORT, vertical line x=0.7218
-│   ├── v001_calibration_config.yaml      # test_v001.mp4, ByteTrack, vertical line x=0.7218
-│   ├── vcamtesting_bytetrack_config.yaml # vcamtesting.mp4, ByteTrack, horizontal line y=0.7992
-│   └── vcamtesting2_bytetrack_config.yaml # vcamtesting2.mp4, ByteTrack, horizontal line y=0.7992
-├── models/
-│   └── yolo11n.pt                        # YOLO weights, auto-downloaded by Ultralytics if absent
-├── src/
-│   ├── config_loader.py                  # loads/validates YAML, freezes a copy per run
-│   ├── detection.py                      # YOLO wrapper — detection ONLY
-│   ├── tracking.py                       # ByteTrack / BoT-SORT wrapper, selected by config
-│   ├── line_crossing.py                  # conventional, unvalidated line-crossing logic
-│   ├── occupancy.py                      # pure counting engine, no CV code
-│   ├── event_logger.py                   # CSV logging, never overwrites prior runs
-│   ├── evaluation.py                     # compares output to ground truth (not yet exercised — see docs/PAPER_TODO.md)
-│   └── main.py                           # orchestrator only, no algorithmic logic of its own
-├── data/
-│   ├── videos/                           # test_v001.mp4, vcamtesting.mp4, vcamtesting2.mp4
-│   └── ground_truth/
-│       └── ground_truth_template.csv     # format reference only — no populated ground truth exists yet
-├── results/
-│   ├── raw/                              # frozen config copy for every run actually executed
-│   ├── logs/                             # events + occupancy timeline CSVs
-│   ├── annotated/                        # QA videos (boxes/IDs/line/occupancy overlay)
-│   └── *.jpg                             # calibration reference stills (grid/line overlays)
-└── docs/
-    ├── EXPERIMENTS.md
-    ├── SYSTEM_SPECIFICATION.md
-    ├── PAPER_FACTS.md
-    └── PAPER_TODO.md
-```
+Use the actual repository as the source of truth.
 
-> **Note on `vcamtesting2`:** its source config is tracked in
-> `config/vcamtesting2_bytetrack_config.yaml`. The file was recovered from
-> the frozen snapshot under `results/raw/`; the existing result artifacts
-> remain unchanged.
+Identify which features are implemented, which are experimental, and which are merely potential future improvements.
 
-Every module owns exactly one job: `detection.py` never tracks,
-`tracking.py` never knows how detections were produced, `line_crossing.py`
-never validates (it reports every raw candidate), `occupancy.py` has no
-computer-vision code, and `main.py` only wires the others together. A
-future validation stage would slot in between `line_crossing.py` and
-`occupancy.py` without touching anything above it.
+Never invent benchmark results, accuracy metrics, performance figures, datasets, or implemented features.
 
-## Methodology
+If information is unavailable, clearly identify it as undocumented rather than making assumptions.
 
-- **Detection:** Ultralytics YOLO (`yolo11n.pt`), called via `model.predict()`
-  per frame — the built-in `model.track()` is deliberately not used, so
-  detection and tracking stay independently swappable. Filtered by
-  confidence threshold, IoU threshold, target class list (COCO class 0 =
-  person by default), and inference image size, all from config.
-- **Tracking:** Two interchangeable backends from the standalone `trackers`
-  (Roboflow) package — `ByteTrackTracker` (Zhang et al.'s ByteTrack) and
-  `BoTSORTTracker` (Aharon et al.'s BoT-SORT). Selected by `tracker.type`
-  in config; no source change needed to switch. BoT-SORT optionally uses
-  Camera Motion Compensation, which needs the raw frame — `tracking.py`
-  hides this difference behind one `update()` call. A `tracker_id` of `-1`
-  means the track is not yet confirmed; `line_crossing.py` filters these
-  out before they can affect crossing state.
-- **Line definition:** Two endpoints `(x1,y1)-(x2,y2)` in normalized
-  coordinates (0.0–1.0 of frame width/height), so one config works across
-  resolutions. Can be horizontal, vertical, or diagonal depending on the
-  two points chosen. `in_is_downward` is a semantic label only — it
-  selects which of Supervision's two raw crossing signals is reported as
-  "IN" vs "OUT"; the correct value must be verified empirically per camera
-  setup by checking the annotated video and events CSV.
-- **Crossing logic:** Wraps `supervision.LineZone` with a `BOTTOM_CENTER`
-  triggering anchor. No confidence filtering beyond the detector's own
-  threshold, no minimum track age, and no protection against a track
-  crossing back and forth (each crossing is reported independently) — this
-  is by design for the frozen baseline.
-- **Occupancy update:** `OccupancyEngine` increments on IN, decrements on
-  OUT, and optionally clamps at a minimum of zero (`clamp_minimum_zero` in
-  config). It tracks running totals of entries/exits and the maximum
-  occupancy observed.
-- **Logging:** `EventLogger` writes one row per accepted crossing to
-  `<experiment_id>_events.csv` and one row per processed frame to
-  `<experiment_id>_occupancy_timeline.csv`. Existing files for an
-  `experiment_id` are never overwritten — a rerun gets a numeric suffix
-  (`_1`, `_2`, ...).
-- **Evaluation:** `evaluation.py` matches predicted vs. ground-truth
-  entry/exit events within a configurable frame tolerance (default 15
-  frames) and reports precision/recall/F1 per direction, plus occupancy
-  MAE and max error against a ground-truth occupancy series (dense or
-  inferred from sparse event rows). It computes only what it has real
-  data for — missing ground truth is reported as a note, never guessed.
-  **No experiment in this repository currently has a populated
-  ground-truth CSV**, so no evaluation run has actually been executed —
-  only the template exists at `data/ground_truth/ground_truth_template.csv`.
+# 2. PROJECT IDENTITY
 
-## Configuration
+Present this as a computer vision project focused on video-based people counting and occupancy estimation.
 
-Every run is driven entirely by one YAML file (`config_loader.py` is the
-single place that reads it — nothing is hard-coded). Top-level sections:
-`experiment` (id, description), `video` (source path, whether to save an
-annotated video, frame subsampling), `detection` (model weights, device,
-confidence/IoU thresholds, target classes, inference size), `tracker`
-(active type plus both `bytetrack` and `botsort` parameter blocks — only
-the active one is used), `line` (two normalized endpoints + the
-`in_is_downward` direction flag), `occupancy` (initial value, zero-clamp
-flag), and `logging` (output directory). `frame_rate` for the tracker is
-taken from the actual input video at runtime, not set in config.
+Use the following project identity:
 
-## Calibration
+Project Name: Occupancy Estimation & Tracking System
 
-The line is calibrated per camera setup by picking two pixel points that
-form a line roughly perpendicular to the direction people walk through the
-frame, then normalizing: `x_normalized = pixel_x / frame_width`,
-`y_normalized = pixel_y / frame_height`. The tracked config files document
-two different calibration approaches actually used:
+Core Technologies:
+- Python
+- YOLO11n for object detection
+- ByteTrack for multi-object tracking
+- BoT-SORT as an alternative tracking approach
+- Supervision for virtual-line crossing and related video-processing utilities
+- OpenCV and Ultralytics where confirmed by the source code
 
-- `v001_botsort_config.yaml` / `v001_calibration_config.yaml`: a
-  **vertical** line at `x = 0.7218`, derived from a ceiling light
-  fixture's tip pixel position (`345 / 478 px`), spanning the full frame
-  height — for `test_v001.mp4` (478×850, portrait).
-- `vcamtesting_bytetrack_config.yaml`: a **horizontal** line at
-  `y = 0.7992` between `x = 0.1792` and `x = 0.6792` — for
-  `vcamtesting.mp4` (848×478, landscape). Note: this file's header comment
-  and `description` field are copy-pasted from the V001 vertical-line
-  template and inaccurately describe this as "a vertical line at
-  x=0.7218" — see `docs/PAPER_TODO.md`, this is a documentation bug, the
-  actual line coordinates used are correct and as stated above.
+Verify these technologies against the repository before including them.
 
-`results/*.jpg` (`vcamtesting_grid.jpg`, `vcamtesting_line2.jpg`,
-`vcamtesting_new_line.jpg`, `vcamtesting2_line3.jpg`) are calibration
-reference stills — grid/line overlays used during this process.
+The project should be described as a system that processes video, detects people, associates detections with object tracks, and estimates directional crossings of a virtual line.
 
-## Trackers
+Explain that line-crossing counts are used as occupancy-related measurements. Do not claim that line-crossing counts automatically equal actual occupancy unless the implementation maintains an initial occupancy value and correctly accounts for entries and exits.
 
-`tracker.type` in config selects `"bytetrack"` or `"botsort"` — both
-blocks stay present in every config file for comparison, only the active
-one is applied (`config_loader.py: TrackerConfig.active_params()`).
-Confirmed by the two `v001_*` experiments, which run the identical video
-and line through both trackers.
+# 3. DESIGN A PREMIUM README HERO SECTION
 
-## Running the System
+Create an impressive opening section that immediately communicates the project's purpose.
 
-The commands below match the repository's current executable layout. Always
-run from inside `src/`:
+Include:
 
-```powershell
-cd src
-python main.py --config ../config/v001_calibration_config.yaml
-```
+- A clean, centered project title.
+- A concise, impactful tagline.
+- Relevant technology badges.
+- GitHub repository badges where appropriate.
+- A table of contents.
+- A short project overview.
+- A prominent demonstration image or GIF, if a suitable asset exists.
 
-Run the same video/line through BoT-SORT instead, no code change:
+Suggested tagline:
 
-```powershell
-python main.py --config ../config/v001_botsort_config.yaml
-```
+"Turning Video Streams into Actionable Occupancy Insights."
 
-Run the generic ByteTrack template on your own video (after editing
-`video.source` and the `line` section for your camera):
+Use a professional computer vision aesthetic inspired by modern AI research repositories.
 
-```powershell
-python main.py --config ../config/baseline_config.yaml
-```
+Visual direction:
+- Dark, technical, research-oriented aesthetic.
+- Black, charcoal, or deep navy backgrounds where appropriate.
+- Cyan, electric blue, or green accents.
+- Clean typography and generous spacing.
+- Technical diagrams and visual explanations.
+- Minimal visual clutter.
 
-Override the experiment ID from the command line (useful for batch runs):
+The README must remain readable on GitHub's standard interface and on mobile devices.
 
-```powershell
-python main.py --config ../config/baseline_config.yaml --experiment_id my_run_1
-```
+Do not attempt to use unsupported CSS or JavaScript to style GitHub Markdown.
 
-### Evaluation (not yet exercised in this repo)
+# 4. ADD VISUALS THROUGHOUT THE README
 
-Only meaningful once a populated ground-truth CSV exists (see
-`data/ground_truth/ground_truth_template.csv` for the format):
+Visual storytelling is a major requirement.
 
-```powershell
-python evaluation.py --experiment_id v001_calibration ^
-  --events_csv ../results/logs/v001_calibration_events.csv ^
-  --timeline_csv ../results/logs/v001_calibration_occupancy_timeline.csv ^
-  --ground_truth_csv ../data/ground_truth/<your_ground_truth>.csv ^
-  --initial_occupancy 0 ^
-  --output_csv ../results/logs/v001_calibration_evaluation.csv
-```
+Do not restrict visuals to the introduction. Integrate relevant images, diagrams, screenshots, and GIFs throughout the document.
 
-(`^` is the PowerShell/CMD line-continuation character; the same command
-works on one line without it.)
+Inspect the repository for existing visual assets before creating references to them.
 
-## Experiments
+Potential visual sections include:
 
-See `docs/EXPERIMENTS.md` for the full table. Four experiments have logged
-results in this repository: `v001_calibration`, `v001_botsort`,
-`vcamtesting_bytetrack`, `vcamtesting2_bytetrack`.
+A. HERO DEMONSTRATION
+- An annotated video frame showing detected people and tracking IDs.
+- A GIF demonstrating detection and tracking across consecutive frames.
+- A virtual counting line, if visible in the actual implementation.
 
-## Results
+B. SYSTEM ARCHITECTURE
+Create a clear architecture diagram showing the actual processing pipeline:
 
-Real, verified numbers extracted directly from the tracked CSV files (not
-re-derived or estimated):
+Input Video
+    ↓
+Frame Extraction
+    ↓
+YOLO11n Person Detection
+    ↓
+Multi-Object Tracking
+    ↓
+ByteTrack / BoT-SORT
+    ↓
+Virtual-Line Crossing Detection
+    ↓
+Directional Counting
+    ↓
+Occupancy-Related Output
 
-| Experiment | Tracker | Video | Events | Final Occupancy | Max Occupancy |
-|---|---|---|---|---|---|
-| `v001_calibration` | ByteTrack | test_v001.mp4 | 1 IN (f119, conf 0.9166), 1 OUT (f624, conf 0.9212) | 0 | 1 |
-| `v001_botsort` | BoT-SORT | test_v001.mp4 | 1 IN (f119, conf 0.9166), 1 OUT (f624, conf 0.9212) | 0 | 1 |
-| `vcamtesting_bytetrack` | ByteTrack | vcamtesting.mp4 | Not consistent across reruns — see Limitations | Not consistent across reruns | 1 (in the first logged run) |
-| `vcamtesting2_bytetrack` | ByteTrack | vcamtesting2.mp4 | 1 OUT (f101, conf 0.7952), clamped at 0 | 0 | 0 |
+Adapt this diagram to match the real implementation.
 
-No accuracy, precision, recall, F1, MAE, RMSE, FPS, or latency figures are
-reported here because no ground-truth CSV exists yet to compute them
-against, and this audit did not re-run the pipeline to measure runtime
-performance. `docs/PAPER_FACTS.md` and `docs/PAPER_TODO.md` mark exactly
-what is verified versus still needed.
+C. DETECTION AND TRACKING
+Show real output frames, where available, that illustrate:
+- Person detection bounding boxes.
+- Tracking IDs.
+- Tracking behavior across frames.
+- Virtual-line placement.
+- Entry and exit counting, if supported.
 
-## Reproducibility
+D. EXPERIMENTAL RESULTS
+Create a visual gallery using existing result images or video previews.
 
-- Exact package versions are pinned in `requirements.txt`
-  (`ultralytics==8.4.121`, `opencv-python-headless==4.13.0.92`,
-  `supervision==0.30.0`, `trackers==2.6.0`, `torch==2.13.0`,
-  `torchvision==0.28.0`, `PyYAML==6.0.3`) — all confirmed resolvable on
-  PyPI as of this audit.
-- Model weights: `yolo11n.pt`, Ultralytics' official pretrained release,
-  auto-downloaded on first run if not already present in `models/`.
-- Every executed run's exact config is copied to
-  `results/raw/<experiment_id>_config_used.yaml`.
-- **Important finding:** `v001_calibration` (3 reruns), `v001_botsort`,
-  and `vcamtesting2_bytetrack` (2 reruns) are bit-for-bit reproducible
-  across their logged reruns. `vcamtesting_bytetrack` is **not** — see
-  Limitations below.
-- Compiled bytecode in `src/__pycache__/` shows the pipeline has actually
-  been executed under Python 3.12, 3.13, and 3.14, even though this is
-  broader than any officially stated supported range in this repository
-  (none was previously documented; do not assume 3.10–3.12 support
-  without testing — see `docs/PAPER_TODO.md`).
+Organize available examples by experimental purpose, such as:
+- Baseline detection and tracking.
+- Different crowd densities.
+- Bidirectional movement.
+- Occlusion and tracking stability.
 
-## Limitations
+Only use categories supported by the repository's actual experiments.
 
-- No confidence filtering beyond the detector's own threshold, no
-  minimum track-age/persistence check, and no trajectory or direction
-  validation before counting a crossing — a track crossing back and forth
-  produces multiple raw events, by design.
-- Camera-specific calibration is required per setup; the line and
-  `in_is_downward` flag must be verified empirically for each new camera
-  position.
-- **Reproducibility gap (verified):** two logged runs of
-  `vcamtesting_bytetrack_config.yaml` against the same video produced
-  different outcomes. One run recorded a single IN event at frame 224
-  (final occupancy 1); another run of the identical config recorded a
-  single OUT event at frame 136 instead (final occupancy 0, clamped). The
-  root cause has not been diagnosed as part of this audit — see
-  `docs/PAPER_TODO.md`. This must be resolved or explained before any
-  quantitative claim is made using this experiment.
-- No ground-truth CSV currently exists for any experiment beyond an empty
-  template, so no precision/recall/F1/MAE figures can yet be computed by
-  `evaluation.py` for this repository.
-- The `vcamtesting2_bytetrack` source config was recovered from its frozen
-  result snapshot; its logged outputs remain the authoritative record of
-  the runs already performed.
-- The frozen raw snapshot for `vcamtesting2` retains stale historical
-  comments that describe a vertical line, while its numeric `line:` values
-  define a horizontal segment. The new tracked source config corrects the
-  prose; the raw snapshot was intentionally left unchanged as an
-  experimental result artifact.
+E. TECHNICAL WORKFLOW
+Include a flowchart explaining the processing stages.
 
-## Future Work
+F. FUTURE APPLICATIONS
+Use a small, tasteful set of icons or visual elements to illustrate potential applications, including:
+- Library occupancy monitoring.
+- Classroom utilization.
+- Building entry and exit analysis.
+- Public-space crowd monitoring.
 
-Not implemented — potential directions only, to be proposed and evaluated
-separately from this frozen baseline:
+Clearly distinguish possible applications from tested deployments.
 
-- Confidence-aware event validation
-- Trajectory-based crossing validation
-- Adaptive or multi-line crossing logic
-- Improved occlusion handling
-- Temporal/persistence-based event confirmation
+# 5. CREATE ANIMATED VISUALS
 
-## Citations
+I want the README to feel dynamic and engaging.
 
-See `docs/PAPER_FACTS.md` for the technologies used (Ultralytics YOLO,
-ByteTrack, BoT-SORT, Supervision) pending exact bibliographic confirmation
-from the author before the paper is written.
+Use GitHub-compatible animated GIFs where suitable.
+
+Potential animations:
+- Person detection across video frames.
+- Tracking IDs following people through a scene.
+- Virtual-line crossing and counting.
+- Before-and-after processing comparisons.
+
+Search the repository for existing GIFs and rendered videos first.
+
+If suitable videos exist but no GIFs are available, provide a small Python script using OpenCV or another appropriate library to generate lightweight GIF previews from the actual annotated output videos.
+
+Do not generate fake tracking demonstrations that could be mistaken for actual project results.
+
+Optimize animations for:
+- Small file size.
+- Fast loading.
+- Clear visibility.
+- Readability on desktop and mobile.
+- Reasonable frame rate and resolution.
+
+Prefer short loops over large, full-length video conversions.
+
+If GitHub Markdown cannot embed the original video format reliably, use a GIF preview linked to the original video file.
+
+Keep all image and animation paths valid relative to the repository root.
+
+# 6. README STRUCTURE
+
+Organize the README using the following sections, adapting them to the actual project.
+
+1. Hero Section
+2. Project Overview
+3. Key Features
+4. Live Demonstration or Visual Preview
+5. System Architecture
+6. How It Works
+7. Technology Stack
+8. Repository Structure
+9. Experimental Methodology
+10. Results and Observations
+11. Installation
+12. Usage
+13. Configuration
+14. Understanding the Output
+15. Limitations
+16. Potential Applications
+17. Future Improvements
+18. Research and Technical Notes
+19. Contributing
+20. License
+
+Do not force sections that cannot be supported by the repository.
+
+If no deployed application exists, do not invent a live demo.
+
+If there is no formal evaluation dataset or numerical benchmark, present qualitative observations instead of fabricated quantitative results.
+
+If a license is missing, state that the repository's licensing status should be clarified rather than claiming it uses a specific license.
+
+# 7. TECHNICAL EXPLANATION
+
+Explain the technical pipeline clearly and accurately.
+
+Discuss:
+
+YOLO11n:
+- Its role in detecting people in individual frames.
+- The use of a pretrained detector, if confirmed.
+- Why a lightweight detection model can be useful for practical video-processing workloads.
+
+Multi-Object Tracking:
+- How tracking associates detections across frames.
+- Why stable track identities matter for counting.
+- How occlusion, missed detections, and camera movement can affect tracking.
+
+ByteTrack and BoT-SORT:
+- Their role in multi-object tracking.
+- Their relevant differences.
+- How the repository selects or configures them.
+
+Virtual-Line Crossing:
+- How the line is positioned in the video.
+- How crossing events are detected.
+- How directional counts are maintained, if implemented.
+- Potential issues caused by line placement and unstable tracking.
+
+Occupancy Estimation:
+- Explain the difference between counting line crossings and maintaining a true occupancy estimate.
+- Discuss how initial occupancy, entry events, exit events, and tracking errors affect the estimate.
+- Describe the actual output produced by the current implementation.
+
+Keep the explanations accessible to engineering students while maintaining technical accuracy.
+
+# 8. EXPERIMENTAL METHODOLOGY
+
+Inspect the available videos, scripts, and experiment configurations.
+
+Document the experimental procedure based on actual evidence.
+
+Where supported, describe experiments involving:
+- Baseline tracking.
+- Different crowd densities.
+- Bidirectional movement.
+- Occlusion.
+- Tracking stability.
+- Camera movement.
+- Virtual-line positioning.
+
+For each documented experiment, explain:
+- Its purpose.
+- What was varied.
+- What was observed.
+- What limitations were identified.
+
+Do not invent experimental outcomes.
+
+If the repository contains only qualitative tests, explicitly describe the evaluation as qualitative.
+
+Recommend suitable future quantitative metrics where useful, such as:
+- Counting MAE.
+- Counting RMSE.
+- ID switches.
+- Track fragmentation.
+- IDF1 or HOTA, when suitable ground-truth annotations are available.
+
+Do not report any of these metrics as measured results unless actual data supports them.
+
+# 9. MAKE THE README INTERACTIVE WHERE POSSIBLE
+
+Use GitHub-compatible Markdown techniques to improve navigation and usability.
+
+Examples:
+- Table of contents with internal anchors.
+- Collapsible technical details using HTML details and summary elements.
+- Compact tables for configuration options.
+- Organized image galleries.
+- Clickable links to source code and demonstration assets.
+- Concise callouts using blockquotes.
+- Clearly separated installation and execution commands.
+
+Use HTML only when GitHub supports the relevant element.
+
+Avoid excessive emojis, decorative separators, oversized tables, and unnecessary badges.
+
+The result should look professionally engineered rather than artificially decorated.
+
+# 10. REPOSITORY STRUCTURE AND ASSET MANAGEMENT
+
+Inspect the current directory structure before suggesting changes.
+
+If additional visual assets are necessary, recommend a clean structure such as:
+
+assets/
+├── architecture/
+│   └── system-architecture.png
+├── screenshots/
+│   ├── detection-preview.jpg
+│   ├── tracking-preview.jpg
+│   └── line-crossing-preview.jpg
+└── animations/
+    ├── detection-demo.gif
+    └── tracking-demo.gif
+
+This is an example, not a mandatory structure. Reuse existing files where appropriate and avoid duplicating large videos.
+
+Do not reference images that do not exist.
+
+If a new diagram or GIF is required, either create it using the available tools or provide a reproducible script and clearly identify the asset that must be generated.
+
+Keep the repository lightweight and avoid committing unnecessarily large binary files.
+
+# 11. INSTALLATION AND USAGE
+
+Generate installation and execution instructions based on the actual repository.
+
+Verify:
+- Python version requirements.
+- Dependency installation.
+- Model weight availability.
+- Input video format.
+- Configuration file paths.
+- Command-line arguments.
+- Output locations.
+- Tracker selection.
+- Any required environment variables.
+
+Use commands that match the actual scripts.
+
+Do not invent entry-point filenames, flags, or directory names.
+
+If the existing code lacks a straightforward entry point, identify the issue and recommend a minimal correction.
+
+Include a small example workflow that a new contributor can follow.
+
+# 12. README QUALITY REQUIREMENTS
+
+The final README must satisfy these standards:
+
+- Technically accurate.
+- Visually compelling.
+- Professional and research-oriented.
+- Easy to navigate.
+- Beginner-friendly without being simplistic.
+- Suitable for GitHub visitors, technical reviewers, and recruiters.
+- Honest about implementation status and experimental limitations.
+- Responsive through standard GitHub Markdown rendering.
+- Free from broken image references and invented results.
+- Consistent in terminology and formatting.
+- Optimized for maintainability.
+
+Avoid generic marketing claims such as "revolutionary AI" or "100% accurate."
+
+Do not add fake stars, contribution counts, social proof, performance badges, or unsupported claims.
+
+# 13. EXECUTION INSTRUCTIONS
+
+Do not stop after providing recommendations or a sample README.
+
+Work directly with the repository if the available environment permits it.
+
+Follow this sequence:
+
+Step 1: Inspect the repository and identify the existing implementation.
+
+Step 2: Inventory existing visual assets, video outputs, and configurations.
+
+Step 3: Determine which README claims and demonstrations are supported by evidence.
+
+Step 4: Design the documentation structure and visual presentation.
+
+Step 5: Generate any required architecture diagrams or lightweight animations using real project information and results.
+
+Step 6: Write the complete README.md.
+
+Step 7: Verify every relative image path, source-code link, command, filename, and configuration reference.
+
+Step 8: Review the final README for factual accuracy, visual consistency, readability, and broken references.
+
+Step 9: Summarize all changes made and list any assets that still need to be generated manually.
+
+If you cannot access or modify the repository directly, do not pretend that you have done so. Produce the complete README based on the files actually available and identify any additional files required for full verification.
+
+**Final objective:** Turn this repository into a polished, visually engaging, technically credible computer vision project showcase that explains what the system does, how it works, how it was evaluated, and what its limitations are.
